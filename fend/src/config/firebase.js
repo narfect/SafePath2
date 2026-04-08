@@ -1,28 +1,25 @@
-import { initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
-import { getDatabase } from 'firebase/database'
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
 
-// Firebase configuration
-// TODO: Replace with your actual Firebase config
-// Get this from: Firebase Console > Project Settings > General > Your apps
+// Firebase configuration from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyAUKV3xY1_UtcW6b7u9CSCtPqh81dgQ4pw",
-  authDomain: "safepath-2006.firebaseapp.com",
-  projectId: "safepath-2006",
-  storageBucket: "safepath-2006.firebasestorage.app",
-  messagingSenderId: "1014121644845",
-  appId: "1:1014121644845:web:5871b3c60d3039035cc9a4",
-  databaseURL: "https://safejourney-2006-default-rtdb.firebaseio.com"
-}
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+};
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig)
+const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
-export const auth = getAuth(app)
-export const db = getFirestore(app)
-export const realtimeDb = getDatabase(app)
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const realtimeDb = getDatabase(app);
 
-export default app
-
+export default app;
