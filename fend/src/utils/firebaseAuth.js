@@ -18,6 +18,22 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
 
 const PENDING_GOOGLE_LINK_KEY = "pendingGoogleLinkCredential";
+const DEFAULT_TRANSPORT_TIMES = {
+  morning: false,
+  afternoon: false,
+  evening: false,
+  night: false,
+};
+
+const normalizePreferences = (preferences = {}) => ({
+  gender: preferences.gender || "",
+  ageGroup: preferences.ageGroup || preferences.age || "",
+  transportMode: preferences.transportMode || preferences.transport || "",
+  transportTimes: {
+    ...DEFAULT_TRANSPORT_TIMES,
+    ...(preferences.transportTimes || {}),
+  },
+});
 
 const savePendingGoogleCredential = (credential) => {
   if (!credential) return;
@@ -99,6 +115,7 @@ const buildUserProfileData = (firebaseUser, profileData = {}) => ({
   latitude: profileData.latitude ?? null,
   longitude: profileData.longitude ?? null,
   emergencyContactNumber: profileData.emergencyContactNumber ?? null,
+  preferences: normalizePreferences(profileData.preferences),
 });
 
 const syncFirebaseUserProfile = async (firebaseUser, overrides = {}) => {
@@ -154,6 +171,7 @@ const syncFirebaseUserProfile = async (firebaseUser, overrides = {}) => {
     latitude: null,
     longitude: null,
     emergencyContactNumber: null,
+    preferences: normalizePreferences(),
   };
 
   await setDoc(userDocRef, profile);
@@ -468,6 +486,35 @@ export const updateUserCredits = async (userId, newCredits) => {
     return { success: true };
   } catch (error) {
     console.error("Error updating credits:", error);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Update user preferences and profile settings in Firestore.
+ */
+export const updateUserPreferences = async (userId, updates = {}) => {
+  try {
+    if (!userId) {
+      return { success: false, message: "User ID is required" };
+    }
+
+    const payload = {};
+
+    if (updates.preferences) {
+      payload.preferences = normalizePreferences(updates.preferences);
+    }
+
+    if (typeof updates.emergencyContactNumber !== "undefined") {
+      payload.emergencyContactNumber = updates.emergencyContactNumber || null;
+    }
+
+    payload.lastActiveAt = new Date().toISOString();
+
+    await setDoc(doc(db, "users", userId), payload, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating user preferences:", error);
     return { success: false, message: error.message };
   }
 };

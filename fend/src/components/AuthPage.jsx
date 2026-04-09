@@ -62,7 +62,7 @@ const AuthPage = ({ setIsAuthenticated }) => {
         setTimeout(() => {
           toast.remove();
         }, 3000);
-        navigate(ROUTES.PREFERENCES);
+        navigate(ROUTES.JOURNEY_PLANNER, { replace: true });
       } else {
         setError(result.message);
       }
@@ -92,7 +92,7 @@ const AuthPage = ({ setIsAuthenticated }) => {
         setTimeout(() => {
           toast.remove();
         }, 3000);
-        navigate(ROUTES.PREFERENCES);
+        navigate(ROUTES.JOURNEY_PLANNER, { replace: true });
       } else {
         setError(result.message);
       }
@@ -121,7 +121,7 @@ const AuthPage = ({ setIsAuthenticated }) => {
         setTimeout(() => {
           toast.remove();
         }, 3000);
-        navigate(ROUTES.PREFERENCES);
+        navigate(ROUTES.JOURNEY_PLANNER, { replace: true });
       } else {
         setError(result.message);
       }
