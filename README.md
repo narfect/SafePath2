@@ -1,5 +1,7 @@
 # SafePath 🗺️📍
 
+![Status](https://img.shields.io/badge/status-active%20development-orange)
+
 ## ⚠️ Problem Statement
 
 SafePath is a safety-focused navigation platform that helps users plan and travel more securely by providing real-time route safety scoring, community-driven safety reporting, and emergency SOS features with peer-to-peer responder coordination.
@@ -129,6 +131,14 @@ DATABASE_URL=sqlite:///./safejourney.db
 TWILIO_ACCOUNT_SID=<your-sid>
 TWILIO_AUTH_TOKEN=<your-token>
 TWILIO_PHONE_NUMBER=<your-twilio-number>
+
+# Optional SMTP (Brevo or other provider) for email notifications/OTP
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USERNAME=<your-smtp-username>
+SMTP_PASSWORD=<your-smtp-password>
+SMTP_FROM_EMAIL=<verified-sender@example.com>
+SMTP_USE_TLS=true
 ```
 
 **Frontend (.env)**
@@ -150,6 +160,21 @@ VITE_FIREBASE_DATABASE_URL=https://your-project-id-default-rtdb.firebaseio.com
 - Keep placeholders only in `fend/.env.example`
 - Enable Authentication (Email/Password), Firestore, and Realtime Database
 - Restart Vite after env changes
+
+### Security Notes
+
+- Keep real secrets only in local `.env` files (`backend/.env`, `fend/.env`).
+- Commit only placeholder values in `*.env.example` files.
+- `.env` is ignored by git in this repo, but if a secret is ever committed once, rotate it and remove it from history.
+
+## Safety Scoring (Current Behavior)
+
+- Route geometry, distance, and duration come from OSRM.
+- Route safety shown in the app is currently calculated in backend route flow using `calculate_route_safety`.
+- Current route safety logic: sample route points -> match map segments -> average `segment.safety_score` from DB.
+- Segment safety score is updated from community reports by report type scoring in `segment_utils.py`.
+- If no matching segments are found, route safety falls back to a default moderate value.
+- `safety_data_service.py` includes an enhanced weighted model (reports/density/time), but route cards currently use the segment-average route flow by default.
 
 ## 📂 File Architecture
 
