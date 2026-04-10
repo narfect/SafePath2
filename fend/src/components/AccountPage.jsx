@@ -416,7 +416,8 @@ const AccountPage = () => {
         body: JSON.stringify({
           uid: profile.uid,
           email: normalizedEmail,
-          display_name: displayName || profile.fullName || authUser?.displayName || "User",
+          display_name:
+            displayName || profile.fullName || authUser?.displayName || "User",
           phone: profile.phone || null,
         }),
       });
@@ -869,7 +870,6 @@ const AccountPage = () => {
                   : "Verify and save phone"}
               </button>
             </section>
-
           </div>
 
           <div className="space-y-6 self-start">
@@ -1012,7 +1012,9 @@ const AccountPage = () => {
                       >
                         <input
                           type="checkbox"
-                          checked={preferences.avoidFactors?.[factor.id] || false}
+                          checked={
+                            preferences.avoidFactors?.[factor.id] || false
+                          }
                           onChange={() => handleAvoidFactorToggle(factor.id)}
                           className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-400"
                         />
@@ -1029,7 +1031,9 @@ const AccountPage = () => {
                 disabled={savingPreferences}
                 className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {savingPreferences ? "Saving preferences..." : "Save preferences"}
+                {savingPreferences
+                  ? "Saving preferences..."
+                  : "Save preferences"}
               </button>
             </section>
 
@@ -1043,7 +1047,8 @@ const AccountPage = () => {
                     SOS contacts
                   </h3>
                   <p className="mt-2 text-sm text-slate-400">
-                    Add one or more numbers. The first number is used as primary contact.
+                    Add one or more numbers. The first number is used as primary
+                    contact.
                   </p>
                 </div>
                 <button
@@ -1068,7 +1073,10 @@ const AccountPage = () => {
                         type="tel"
                         value={contact}
                         onChange={(event) =>
-                          handleEmergencyContactChange(index, event.target.value)
+                          handleEmergencyContactChange(
+                            index,
+                            event.target.value,
+                          )
                         }
                         placeholder="Enter phone number with country code (Eg: +910000000000)"
                         className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
