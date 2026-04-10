@@ -1,5 +1,5 @@
 const RouteCard = ({ route, onClick, isSelected }) => {
-  const { name, distance, eta, safety } = route
+  const { name, distance, eta, safety, avoidSummary = [] } = route
 
   const getColorClasses = (color) => {
     switch (color) {
@@ -59,6 +59,13 @@ const RouteCard = ({ route, onClick, isSelected }) => {
           </span>
         </div>
       </div>
+
+      {avoidSummary.length > 0 && (
+        <div className="mt-3 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+          Avoiding: {avoidSummary.slice(0, 3).join(', ')}
+          {avoidSummary.length > 3 ? '...' : ''}
+        </div>
+      )}
     </div>
   )
 }

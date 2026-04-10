@@ -537,6 +537,7 @@ class RouteRequest(BaseModel):
     dest_lat: float
     dest_lng: float
     waypoints: Optional[str] = None
+    avoid_factors: Optional[Dict[str, bool]] = None
 
 @app.post("/api/update-location")
 def update_user_location(location_data: LocationUpdate):
@@ -989,6 +990,25 @@ async def get_routes(route_request: RouteRequest):
         origin_lng = route_request.origin_lng
         dest_lat = route_request.dest_lat
         dest_lng = route_request.dest_lng
+        avoid_factors = route_request.avoid_factors or {}
+
+        avoid_weight = {
+            "poorLighting": 0.18,
+            "heavyTraffic": 0.12,
+            "crowdedAreas": 0.10,
+            "lowPolicePresence": 0.16,
+            "longRoutes": 0.12,
+            "accidentProne": 0.16,
+        }
+
+        avoid_labels = {
+            "poorLighting": "Poor lighting",
+            "heavyTraffic": "Heavy traffic",
+            "crowdedAreas": "Crowded areas",
+            "lowPolicePresence": "Low police presence",
+            "longRoutes": "Longer routes",
+            "accidentProne": "Accident prone areas",
+        }
         
         coordinates = f"{origin_lng},{origin_lat};{dest_lng},{dest_lat}"
         
@@ -1082,7 +1102,37 @@ async def get_routes(route_request: RouteRequest):
                     else:
                         norm_safety = 1.0
                     
-                    route['composite_score'] = (norm_safety * 0.6) + (norm_dist * 0.4)
+                    duration_penalty = 0.0
+                    safety_penalty = 0.0
+
+                    if avoid_factors.get("longRoutes"):
+                        duration_penalty += max(0.0, 1 - norm_dist) * avoid_weight["longRoutes"]
+
+                    if avoid_factors.get("heavyTraffic"):
+                        duration_penalty += max(0.0, 1 - min(1.0, route["duration"] / 45.0)) * avoid_weight["heavyTraffic"]
+
+                    if avoid_factors.get("accidentProne"):
+                        safety_penalty += max(0.0, (6.8 - route['safety']['safety_score']) / 10.0) * avoid_weight["accidentProne"]
+
+                    if avoid_factors.get("poorLighting"):
+                        safety_penalty += max(0.0, (7.0 - route['safety']['safety_score']) / 10.0) * avoid_weight["poorLighting"]
+
+                    if avoid_factors.get("lowPolicePresence"):
+                        safety_penalty += max(0.0, (6.5 - route['safety']['safety_score']) / 10.0) * avoid_weight["lowPolicePresence"]
+
+                    if avoid_factors.get("crowdedAreas"):
+                        safety_penalty += max(0.0, (6.0 - route['safety']['safety_score']) / 10.0) * avoid_weight["crowdedAreas"]
+
+                    route['composite_score'] = max(
+                        0.0,
+                        min(
+                            1.0,
+                            (norm_safety * 0.6)
+                            + (norm_dist * 0.4)
+                            - duration_penalty
+                            - safety_penalty,
+                        ),
+                    )
                 
                 routes_with_safety.sort(key=lambda r: r['composite_score'], reverse=True)
                 
@@ -1162,6 +1212,22 @@ async def get_routes(route_request: RouteRequest):
                         route['safety']['color'] = 'red'
                         route['safety']['rating'] = 'least safe'
                         route['name'] = f'Alternative Route (Red) - {route["distance"]} km, Safety: {route["safety"]["safety_score"]}/10'
+
+                    selected_factors = [
+                        avoid_labels[key]
+                        for key, enabled in avoid_factors.items()
+                        if enabled and key in avoid_labels
+                    ]
+                    if selected_factors:
+                        route['avoid_summary'] = selected_factors
+
+                    selected_factors = [
+                        avoid_labels[key]
+                        for key, enabled in avoid_factors.items()
+                        if enabled and key in avoid_labels
+                    ]
+                    if selected_factors:
+                        route['avoid_summary'] = selected_factors
             
             return {
                 "routes": routes_with_safety[:3],  # Return exactly 3 routes

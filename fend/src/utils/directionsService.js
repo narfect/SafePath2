@@ -3,7 +3,7 @@ import { API_BASE_URL } from '../config/api'
 /**
  * Get routes with safety scores from backend
  */
-export const getRoutesFromDirectionsAPI = async (origin, destination) => {
+export const getRoutesFromDirectionsAPI = async (origin, destination, preferences = {}) => {
   try {
     console.log('🔍 Fetching routes from backend:', origin, 'to:', destination)
 
@@ -25,7 +25,8 @@ export const getRoutesFromDirectionsAPI = async (origin, destination) => {
         origin_lat: originCoords.lat,
         origin_lng: originCoords.lng,
         dest_lat: destCoords.lat,
-        dest_lng: destCoords.lng
+        dest_lng: destCoords.lng,
+        avoid_factors: preferences.avoidFactors || {}
       })
     })
 
@@ -68,6 +69,8 @@ export const getRoutesFromDirectionsAPI = async (origin, destination) => {
         tag: route.safety.rating || route.safety.color, // Use rating as tag
         segmentsMatched: route.safety.segments_matched
       }
+      ,
+      avoidSummary: route.avoid_summary || []
     }))
 
     console.log(`✅ Processed ${routes.length} routes with safety scores`)

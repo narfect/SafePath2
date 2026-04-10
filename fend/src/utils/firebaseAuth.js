@@ -26,6 +26,15 @@ const DEFAULT_TRANSPORT_TIMES = {
   night: false,
 };
 
+const DEFAULT_AVOID_FACTORS = {
+  poorLighting: false,
+  heavyTraffic: false,
+  crowdedAreas: false,
+  lowPolicePresence: false,
+  longRoutes: false,
+  accidentProne: false,
+};
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const E164_PHONE_REGEX = /^\+[1-9]\d{7,14}$/;
 const PASSWORD_REGEX =
@@ -39,6 +48,16 @@ const normalizePreferences = (preferences = {}) => ({
     ...DEFAULT_TRANSPORT_TIMES,
     ...(preferences.transportTimes || {}),
   },
+  avoidFactors: (() => {
+    const avoidFactors = preferences.avoidFactors || {};
+    const { lateNightTravel, ...rest } = avoidFactors;
+
+    return {
+      ...DEFAULT_AVOID_FACTORS,
+      ...rest,
+      accidentProne: rest.accidentProne ?? lateNightTravel ?? false,
+    };
+  })(),
 });
 
 const savePendingGoogleCredential = (credential) => {
@@ -114,6 +133,25 @@ const extractPhoneFromSyntheticEmail = (email) => {
   if (!digits) return null;
 
   return `+${digits}`;
+};
+
+export const getUserDisplayIdentifier = (user = {}) => {
+  const phone = normalizePhone(user.phone || "");
+  if (phone) {
+    return phone;
+  }
+
+  const email = (user.email || "").trim();
+  if (email && !/^phone_\d+@safepath\.local$/i.test(email)) {
+    return email;
+  }
+
+  const syntheticPhone = extractPhoneFromSyntheticEmail(email);
+  if (syntheticPhone) {
+    return syntheticPhone;
+  }
+
+  return "N/A";
 };
 
 // ─── Sync user to backend (best-effort, never blocks auth) ───────────────────

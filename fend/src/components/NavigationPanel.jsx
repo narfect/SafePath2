@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { submitRouteReport, shareNavigationProgress, REPORT_TYPES } from '../utils/reportService'
 import { sendSOSAlert } from '../utils/sosService'
-import { getCurrentUser } from '../utils/firebaseAuth'
+import { getCurrentUser, getUserDisplayIdentifier } from '../utils/firebaseAuth'
 
 const NavigationPanel = ({ 
   route, 
@@ -351,7 +351,7 @@ const NavigationPanel = ({
                     description: reportText,
                     latitude: userLocation.lat,
                     longitude: userLocation.lng,
-                    username: user?.displayName || user?.email || user?.fullName,
+                    username: user?.displayName || getUserDisplayIdentifier(user) || user?.fullName,
                     userId: user?.uid
                   })
                   

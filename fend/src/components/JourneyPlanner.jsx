@@ -18,6 +18,7 @@ import {
   watchDeviceLocation,
   getOptimalUpdateInterval,
 } from "../utils/deviceLocationService";
+import { getUserDisplayIdentifier } from "../utils/firebaseAuth";
 import MapContainer from "./MapContainer";
 import RouteCard from "./RouteCard";
 import NavigationPanel from "./NavigationPanel";
@@ -468,6 +469,7 @@ const JourneyPlanner = () => {
       const fetchedRoutes = await getRoutesFromDirectionsAPI(
         userLocation,
         destCoords,
+        user?.preferences || {},
       );
 
       console.log("✅ Routes fetched:", fetchedRoutes.length);
@@ -557,7 +559,7 @@ const JourneyPlanner = () => {
                     {user?.fullName || "User"}
                   </h3>
                   <p className="text-sm text-gray-400">
-                    {user?.email || "N/A"}
+                    {getUserDisplayIdentifier(user)}
                   </p>
                 </button>
               </div>
