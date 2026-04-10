@@ -72,7 +72,7 @@ function App() {
           }
         />
         <Route
-          path={ROUTES.PREFERENCES}
+          path="/preferences"
           element={<Navigate to={ROUTES.ACCOUNT} replace />}
         />
         <Route
