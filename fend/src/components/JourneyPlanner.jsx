@@ -468,6 +468,7 @@ const JourneyPlanner = () => {
       const fetchedRoutes = await getRoutesFromDirectionsAPI(
         userLocation,
         destCoords,
+        user?.preferences || {},
       );
 
       console.log("✅ Routes fetched:", fetchedRoutes.length);
@@ -556,9 +557,6 @@ const JourneyPlanner = () => {
                   <h3 className="text-lg font-semibold text-white transition hover:text-cyan-300">
                     {user?.fullName || "User"}
                   </h3>
-                  <p className="text-sm text-gray-400">
-                    {user?.email || "N/A"}
-                  </p>
                 </button>
               </div>
             </div>

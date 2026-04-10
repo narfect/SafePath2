@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuth } from "firebase/auth";
-import { getCurrentUser, updateUserPreferences } from "../utils/firebaseAuth";
+import { doc, setDoc } from "firebase/firestore";
+import {
+  getCurrentUser,
+  updateUserPreferences,
+  sendVerificationOtp,
+  verifyRegistrationOtp,
+} from "../utils/firebaseAuth";
 import { API_BASE_URL } from "../config/api";
+import { db } from "../config/firebase";
 import { ROUTES } from "../utils/routes";
 
 const DEFAULT_PREFERENCES = {
@@ -15,6 +22,14 @@ const DEFAULT_PREFERENCES = {
     evening: false,
     night: false,
   },
+  avoidFactors: {
+    poorLighting: false,
+    heavyTraffic: false,
+    crowdedAreas: false,
+    lowPolicePresence: false,
+    longRoutes: false,
+    accidentProne: false,
+  },
 };
 
 const normalizePreferences = (preferences = {}) => ({
@@ -25,6 +40,16 @@ const normalizePreferences = (preferences = {}) => ({
     ...DEFAULT_PREFERENCES.transportTimes,
     ...(preferences.transportTimes || {}),
   },
+  avoidFactors: (() => {
+    const avoidFactors = preferences.avoidFactors || {};
+    const { lateNightTravel, ...rest } = avoidFactors;
+
+    return {
+      ...DEFAULT_PREFERENCES.avoidFactors,
+      ...rest,
+      accidentProne: rest.accidentProne ?? lateNightTravel ?? false,
+    };
+  })(),
 });
 
 const normalizeEmergencyContacts = (user = {}) => {
@@ -42,13 +67,29 @@ const normalizeEmergencyContacts = (user = {}) => {
   return [""];
 };
 
+const E164_PHONE_REGEX = /^\+[1-9]\d{7,14}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const isSyntheticPhoneEmail = (value = "") =>
+  /^phone_\d+@safepath\.local$/i.test((value || "").trim());
+
 const AccountPage = () => {
   const navigate = useNavigate();
   const auth = getAuth();
   const [profile, setProfile] = useState(null);
   const [displayName, setDisplayName] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
   const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
   const [emergencyContacts, setEmergencyContacts] = useState([""]);
+  const [emailOtp, setEmailOtp] = useState("");
+  const [emailOtpSentTo, setEmailOtpSentTo] = useState("");
+  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
+  const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtpSentTo, setPhoneOtpSentTo] = useState("");
+  const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
+  const [verifyingPhoneOtp, setVerifyingPhoneOtp] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingName, setSavingName] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -73,6 +114,12 @@ const AccountPage = () => {
 
         setProfile(currentUser);
         setDisplayName(currentUser.fullName || "");
+        setEmailAddress(
+          currentUser.email && !isSyntheticPhoneEmail(currentUser.email)
+            ? currentUser.email
+            : "",
+        );
+        setPhoneNumber(currentUser.phone || "");
         setPreferences(normalizePreferences(currentUser.preferences));
         setEmergencyContacts(normalizeEmergencyContacts(currentUser));
 
@@ -129,6 +176,18 @@ const AccountPage = () => {
       transportTimes: {
         ...prev.transportTimes,
         [time]: !prev.transportTimes[time],
+      },
+    }));
+    setError("");
+    setMessage("");
+  };
+
+  const handleAvoidFactorToggle = (factor) => {
+    setPreferences((prev) => ({
+      ...prev,
+      avoidFactors: {
+        ...prev.avoidFactors,
+        [factor]: !prev.avoidFactors?.[factor],
       },
     }));
     setError("");
@@ -264,6 +323,113 @@ const AccountPage = () => {
     }
   };
 
+  const handleSendEmailOtp = async () => {
+    setError("");
+    setMessage("");
+
+    if (!profile?.uid) {
+      setError("Please sign in again to update email.");
+      return;
+    }
+
+    const normalizedEmail = emailAddress.trim().toLowerCase();
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    if (normalizedEmail === (profile.email || "").trim().toLowerCase()) {
+      setError("This email is already on your account.");
+      return;
+    }
+
+    setSendingEmailOtp(true);
+    try {
+      const result = await sendVerificationOtp({
+        uid: profile.uid,
+        channel: "email",
+        email: normalizedEmail,
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "Could not send OTP to email.");
+      }
+
+      setEmailOtpSentTo(result.destination || normalizedEmail);
+      setMessage("OTP sent to your email. Enter it below to verify.");
+    } catch (sendError) {
+      setError(sendError.message || "Could not send OTP to email.");
+    } finally {
+      setSendingEmailOtp(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async () => {
+    setError("");
+    setMessage("");
+
+    if (!profile?.uid) {
+      setError("Please sign in again to verify email.");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(emailOtp)) {
+      setError("Enter a valid 6-digit OTP.");
+      return;
+    }
+
+    const normalizedEmail = emailAddress.trim().toLowerCase();
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    setVerifyingEmailOtp(true);
+    try {
+      const verifyResult = await verifyRegistrationOtp({
+        uid: profile.uid,
+        channel: "email",
+        otp: emailOtp,
+      });
+
+      if (!verifyResult.success) {
+        throw new Error(verifyResult.message || "Invalid OTP.");
+      }
+
+      const authUser = auth.currentUser;
+
+      await setDoc(
+        doc(db, "users", profile.uid),
+        {
+          email: normalizedEmail,
+          lastActiveAt: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+
+      await fetch(`${API_BASE_URL}/users/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: profile.uid,
+          email: normalizedEmail,
+          display_name: displayName || profile.fullName || "User",
+          phone: profile.phone || null,
+        }),
+      });
+
+      setProfile((prev) => (prev ? { ...prev, email: normalizedEmail } : prev));
+      setEmailAddress(normalizedEmail);
+      setEmailOtp("");
+      setEmailOtpSentTo("");
+      setMessage("Email verified and saved successfully using OTP.");
+    } catch (verifyError) {
+      setError(verifyError.message || "Could not verify email OTP.");
+    } finally {
+      setVerifyingEmailOtp(false);
+    }
+  };
+
   const handleSaveEmergencyContacts = async () => {
     setError("");
     setMessage("");
@@ -348,6 +514,100 @@ const AccountPage = () => {
     }
   };
 
+  const handleSendPhoneOtp = async () => {
+    setError("");
+    setMessage("");
+
+    if (!profile?.uid) {
+      setError("Please sign in again to update phone number.");
+      return;
+    }
+
+    const normalizedPhone = phoneNumber.trim().replace(/\s+/g, "");
+    if (!E164_PHONE_REGEX.test(normalizedPhone)) {
+      setError(
+        "Enter a valid phone with country code (for example +910000000000).",
+      );
+      return;
+    }
+
+    setSendingPhoneOtp(true);
+    try {
+      const result = await sendVerificationOtp({
+        uid: profile.uid,
+        channel: "phone",
+        phone: normalizedPhone,
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "Could not send OTP to phone.");
+      }
+
+      setPhoneOtpSentTo(result.destination || "your phone");
+      setMessage("OTP sent to your phone. Enter it below to verify.");
+    } catch (sendError) {
+      setError(sendError.message || "Could not send OTP to phone.");
+    } finally {
+      setSendingPhoneOtp(false);
+    }
+  };
+
+  const handleVerifyPhoneOtp = async () => {
+    setError("");
+    setMessage("");
+
+    if (!profile?.uid) {
+      setError("Please sign in again to verify phone number.");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(phoneOtp)) {
+      setError("Enter a valid 6-digit OTP.");
+      return;
+    }
+
+    setVerifyingPhoneOtp(true);
+    try {
+      const verifyResult = await verifyRegistrationOtp({
+        uid: profile.uid,
+        channel: "phone",
+        otp: phoneOtp,
+      });
+
+      if (!verifyResult.success) {
+        throw new Error(verifyResult.message || "Invalid OTP.");
+      }
+
+      const userResponse = await fetch(
+        `${API_BASE_URL}/api/users/${profile.uid}`,
+      );
+      const backendUser = userResponse.ok ? await userResponse.json() : null;
+      const verifiedPhone =
+        backendUser?.phone || phoneNumber.trim().replace(/\s+/g, "");
+
+      const firestoreResult = await updateUserPreferences(profile.uid, {
+        phone: verifiedPhone,
+      });
+
+      if (!firestoreResult.success) {
+        console.warn(
+          "Phone verified in backend, Firestore sync failed:",
+          firestoreResult.message,
+        );
+      }
+
+      setProfile((prev) => (prev ? { ...prev, phone: verifiedPhone } : prev));
+      setPhoneNumber(verifiedPhone);
+      setPhoneOtp("");
+      setPhoneOtpSentTo("");
+      setMessage("Phone number verified and saved successfully.");
+    } catch (verifyError) {
+      setError(verifyError.message || "Could not verify phone OTP.");
+    } finally {
+      setVerifyingPhoneOtp(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
@@ -399,7 +659,7 @@ const AccountPage = () => {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
           <div className="space-y-6">
             <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -418,7 +678,12 @@ const AccountPage = () => {
                     {displayName || "User"}
                   </h2>
                   <p className="mt-1 break-all text-sm text-slate-400">
-                    {profile?.email || "No email available"}
+                    {profile?.email && !isSyntheticPhoneEmail(profile.email)
+                      ? profile.email
+                      : "No verified email"}
+                  </p>
+                  <p className="mt-1 break-all text-sm text-slate-400">
+                    {profile?.phone || "No verified phone"}
                   </p>
                   <p className="mt-3 text-sm text-slate-300">
                     Primary SOS number: {emergencyContacts[0] || "Not set"}
@@ -459,17 +724,327 @@ const AccountPage = () => {
             </section>
 
             <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
+              <div className="mb-6">
+                <p className="text-sm uppercase tracking-[0.25em] text-cyan-300/80">
+                  Contact
+                </p>
+                <h3 className="mt-1 text-xl font-semibold text-white">
+                  Add/change email
+                </h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Email changes are saved only after OTP verification.
+                </p>
+              </div>
+
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Email address
+              </label>
+              <input
+                type="email"
+                value={emailAddress}
+                onChange={(event) => {
+                  setEmailAddress(event.target.value);
+                  setEmailOtpSentTo("");
+                  setEmailOtp("");
+                  setError("");
+                  setMessage("");
+                }}
+                placeholder="john@example.com"
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+              />
+
+              <button
+                type="button"
+                onClick={handleSendEmailOtp}
+                disabled={sendingEmailOtp}
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {sendingEmailOtp ? "Sending OTP..." : "Send OTP to email"}
+              </button>
+
+              {emailOtpSentTo && (
+                <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-sm text-cyan-100">
+                  OTP sent to {emailOtpSentTo}
+                </div>
+              )}
+
+              <label className="mt-4 mb-2 block text-sm font-medium text-slate-300">
+                Enter OTP
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={emailOtp}
+                onChange={(event) =>
+                  setEmailOtp(event.target.value.replace(/\D/g, ""))
+                }
+                placeholder="123456"
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+              />
+
+              <button
+                type="button"
+                onClick={handleVerifyEmailOtp}
+                disabled={verifyingEmailOtp}
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {verifyingEmailOtp
+                  ? "Verifying OTP..."
+                  : "Verify and save email"}
+              </button>
+            </section>
+
+            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
+              <div className="mb-6">
+                <p className="text-sm uppercase tracking-[0.25em] text-cyan-300/80">
+                  Contact
+                </p>
+                <h3 className="mt-1 text-xl font-semibold text-white">
+                  Add/change phone number
+                </h3>
+                <p className="mt-2 text-sm text-slate-400">
+                  Phone number changes are saved only after OTP verification.
+                </p>
+              </div>
+
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                Phone number (E.164)
+              </label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(event) => {
+                  setPhoneNumber(event.target.value);
+                  setPhoneOtpSentTo("");
+                  setPhoneOtp("");
+                  setError("");
+                  setMessage("");
+                }}
+                placeholder="+910000000000"
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+              />
+
+              <button
+                type="button"
+                onClick={handleSendPhoneOtp}
+                disabled={sendingPhoneOtp}
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {sendingPhoneOtp ? "Sending OTP..." : "Send OTP to phone"}
+              </button>
+
+              {phoneOtpSentTo && (
+                <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-sm text-cyan-100">
+                  OTP sent to {phoneOtpSentTo}
+                </div>
+              )}
+
+              <label className="mt-4 mb-2 block text-sm font-medium text-slate-300">
+                Enter OTP
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={phoneOtp}
+                onChange={(event) =>
+                  setPhoneOtp(event.target.value.replace(/\D/g, ""))
+                }
+                placeholder="123456"
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+              />
+
+              <button
+                type="button"
+                onClick={handleVerifyPhoneOtp}
+                disabled={verifyingPhoneOtp}
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {verifyingPhoneOtp
+                  ? "Verifying OTP..."
+                  : "Verify and save phone"}
+              </button>
+            </section>
+          </div>
+
+          <div className="space-y-6 self-start">
+            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.25em] text-cyan-300/80">
+                    Preferences
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-white">
+                    Travel Profile
+                  </h3>
+                </div>
+                <span className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+                  Saved in account
+                </span>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                    Gender
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {["Male", "Female", "Other"].map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => handlePreferenceChange("gender", option)}
+                        className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${
+                          preferences.gender === option
+                            ? "border-cyan-400 bg-cyan-400/15 text-cyan-100"
+                            : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-cyan-300/40 hover:bg-white/5"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                    Age group
+                  </label>
+                  <select
+                    value={preferences.ageGroup}
+                    onChange={(event) =>
+                      handlePreferenceChange("ageGroup", event.target.value)
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                  >
+                    <option value="">Select your age group</option>
+                    <option value="13-17">13 - 17</option>
+                    <option value="18-25">18 - 25</option>
+                    <option value="26-35">26 - 35</option>
+                    <option value="36-45">36 - 45</option>
+                    <option value="46-55">46 - 55</option>
+                    <option value="56+">56+</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                    Transport mode
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {["Walking", "Transport"].map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() =>
+                          handlePreferenceChange("transportMode", option)
+                        }
+                        className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${
+                          preferences.transportMode === option
+                            ? "border-cyan-400 bg-cyan-400/15 text-cyan-100"
+                            : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-cyan-300/40 hover:bg-white/5"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-slate-300">
+                      Travel times
+                    </label>
+                    <span className="text-xs text-slate-500">
+                      Choose all that apply
+                    </span>
+                  </div>
+                  <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    {[
+                      { id: "morning", label: "Morning (6 AM - 12 PM)" },
+                      { id: "afternoon", label: "Afternoon (12 PM - 6 PM)" },
+                      { id: "evening", label: "Evening (6 PM - 9 PM)" },
+                      { id: "night", label: "Night (9 PM - 6 AM)" },
+                    ].map((time) => (
+                      <label
+                        key={time.id}
+                        className="flex cursor-pointer items-center gap-3 text-sm text-slate-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={preferences.transportTimes[time.id]}
+                          onChange={() => handleTimeToggle(time.id)}
+                          className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-400"
+                        />
+                        <span>{time.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-slate-300">
+                      Avoid route factors
+                    </label>
+                    <span className="text-xs text-slate-500">
+                      Used to rank safer routes first
+                    </span>
+                  </div>
+                  <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    {[
+                      { id: "poorLighting", label: "Poor lighting" },
+                      { id: "heavyTraffic", label: "Heavy traffic" },
+                      { id: "crowdedAreas", label: "Crowded areas" },
+                      { id: "lowPolicePresence", label: "Low police presence" },
+                      { id: "longRoutes", label: "Longer routes" },
+                      { id: "accidentProne", label: "Accident prone areas" },
+                    ].map((factor) => (
+                      <label
+                        key={factor.id}
+                        className="flex cursor-pointer items-center gap-3 text-sm text-slate-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            preferences.avoidFactors?.[factor.id] || false
+                          }
+                          onChange={() => handleAvoidFactorToggle(factor.id)}
+                          className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-400"
+                        />
+                        <span>{factor.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSavePreferences}
+                disabled={savingPreferences}
+                className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {savingPreferences
+                  ? "Saving preferences..."
+                  : "Save preferences"}
+              </button>
+            </section>
+
+            <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.25em] text-cyan-300/80">
                     Emergency contacts
                   </p>
                   <h3 className="mt-1 text-xl font-semibold text-white">
-                    SOS destination numbers
+                    SOS contacts
                   </h3>
                   <p className="mt-2 text-sm text-slate-400">
                     Add one or more numbers. The first number is used as primary
-                    backend contact.
+                    contact.
                   </p>
                 </div>
                 <button
@@ -499,7 +1074,7 @@ const AccountPage = () => {
                             event.target.value,
                           )
                         }
-                        placeholder="Enter phone number with country code"
+                        placeholder="Enter phone number with country code (Eg: +910000000000)"
                         className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
                       />
                       <button
@@ -529,132 +1104,6 @@ const AccountPage = () => {
               </button>
             </section>
           </div>
-
-          <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm uppercase tracking-[0.25em] text-cyan-300/80">
-                  Preferences
-                </p>
-                <h3 className="mt-1 text-xl font-semibold text-white">
-                  Travel profile
-                </h3>
-              </div>
-              <span className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
-                Saved in account
-              </span>
-            </div>
-
-            <div className="space-y-5">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Gender
-                </label>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  {["Male", "Female", "Other"].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => handlePreferenceChange("gender", option)}
-                      className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${
-                        preferences.gender === option
-                          ? "border-cyan-400 bg-cyan-400/15 text-cyan-100"
-                          : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-cyan-300/40 hover:bg-white/5"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Age group
-                </label>
-                <select
-                  value={preferences.ageGroup}
-                  onChange={(event) =>
-                    handlePreferenceChange("ageGroup", event.target.value)
-                  }
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
-                >
-                  <option value="">Select your age group</option>
-                  <option value="13-17">13 - 17</option>
-                  <option value="18-25">18 - 25</option>
-                  <option value="26-35">26 - 35</option>
-                  <option value="36-45">36 - 45</option>
-                  <option value="46-55">46 - 55</option>
-                  <option value="56+">56+</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Transport mode
-                </label>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {["Walking", "Transport"].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() =>
-                        handlePreferenceChange("transportMode", option)
-                      }
-                      className={`rounded-xl border px-4 py-3 text-sm font-medium transition ${
-                        preferences.transportMode === option
-                          ? "border-cyan-400 bg-cyan-400/15 text-cyan-100"
-                          : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-cyan-300/40 hover:bg-white/5"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <label className="block text-sm font-medium text-slate-300">
-                    Travel times
-                  </label>
-                  <span className="text-xs text-slate-500">
-                    Choose all that apply
-                  </span>
-                </div>
-                <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-                  {[
-                    { id: "morning", label: "Morning (6 AM - 12 PM)" },
-                    { id: "afternoon", label: "Afternoon (12 PM - 6 PM)" },
-                    { id: "evening", label: "Evening (6 PM - 9 PM)" },
-                    { id: "night", label: "Night (9 PM - 6 AM)" },
-                  ].map((time) => (
-                    <label
-                      key={time.id}
-                      className="flex cursor-pointer items-center gap-3 text-sm text-slate-200"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={preferences.transportTimes[time.id]}
-                        onChange={() => handleTimeToggle(time.id)}
-                        className="h-5 w-5 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-400"
-                      />
-                      <span>{time.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSavePreferences}
-              disabled={savingPreferences}
-              className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {savingPreferences ? "Saving preferences..." : "Save preferences"}
-            </button>
-          </section>
         </div>
       </div>
     </div>
