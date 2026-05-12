@@ -4,7 +4,7 @@
 
 ## ⚠️ Problem Statement
 
-SafePath is a safety-focused navigation platform that helps users plan and travel more securely by providing real-time route safety scoring, community-driven safety reporting, and emergency SOS features with peer-to-peer responder coordination.
+SafePath   is a safety-focused navigation platform that helps users plan and travel more securely by providing real-time route safety scoring, community-driven safety reporting, and emergency SOS features with peer-to-peer responder coordination.
 
 ## 📝 Our Solution
 
