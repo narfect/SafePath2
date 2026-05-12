@@ -46,7 +46,7 @@ app = FastAPI(title="SafePath Backend", version="4.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -604,7 +604,7 @@ def create_or_update_user(user_data: UserRequest, session: Session = Depends(get
             session.add(user)
             session.commit()
             session.refresh(user)
-            return {"status": "updated", "user": user}
+            return {"status": "updated", "user": user.dict()}
         except IntegrityError:
             session.rollback()
             raise HTTPException(
@@ -626,7 +626,7 @@ def create_or_update_user(user_data: UserRequest, session: Session = Depends(get
         session.add(new_user)
         session.commit()
         session.refresh(new_user)
-        return {"status": "created", "user": new_user}
+        return {"status": "created", "user": new_user.dict()}
     except IntegrityError:
         session.rollback()
         # Don't attempt email/phone lookup for UPDATE - this enables account takeover

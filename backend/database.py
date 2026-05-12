@@ -54,7 +54,6 @@ def get_session():
                 detail="Database connection unavailable. Please check your database configuration or network connection."
             )
         raise
-        raise
 
 def is_database_available() -> bool:
     """Check if database is available"""
