@@ -1,5 +1,7 @@
 ﻿from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlmodel import select, Session, SQLModel
 from models import User, Segment, UserVerification, OTPCode
 from database import engine, get_session
@@ -59,6 +61,22 @@ async def global_exception_handler(request: Request, exc: Exception):
         headers={"Access-Control-Allow-Origin": "*"}
     )
     
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
 SQLModel.metadata.create_all(engine)
 print("✅ Database tables initialized successfully")
 
@@ -292,17 +310,31 @@ def send_email_otp(destination_email: str, otp_code: str):
             status_code=502,
             detail=f"SMTP send failed: {str(smtp_error)}",
         )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Connection properly timed out. The server hosting the backend might be blocking outbound SMTP connections.",
+        )
+    except Exception as general_error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not connect to SMTP server: {str(general_error)}",
+        )
 
 
 def send_sms_otp(destination_phone: str, otp_code: str):
     if not twilio_client:
         raise HTTPException(status_code=503, detail="SMS OTP is not configured on server")
-
-    twilio_client.messages.create(
-        body=f"Your SafePath verification code is {otp_code}. It expires in {OTP_TTL_MINUTES} minutes.",
-        from_=TWILIO_PHONE_NUMBER,
-        to=destination_phone,
-    )
+    
+    try:
+        twilio_client.messages.create(
+            body=f"Your SafePath verification code is {otp_code}. It expires in {OTP_TTL_MINUTES} minutes.",
+            from_=TWILIO_PHONE_NUMBER,
+            to=destination_phone,
+        )
+    except Exception as e:
+        # Catch Twilio errors (e.g., Unverified Number on Trial Account)
+        raise HTTPException(status_code=502, detail=f"Failed to send SMS via Twilio: {str(e)}")
 
 
 def get_or_create_verification(uid: str, session: Session) -> UserVerification:
@@ -394,6 +426,8 @@ def send_verification_otp(payload: SendOTPRequest, session: Session = Depends(ge
     except Exception as send_error:
         # Rollback on send failure to avoid stale OTP and cooldown lockout
         session.rollback()
+        if isinstance(send_error, HTTPException) or isinstance(send_error, StarletteHTTPException):
+            raise send_error
         raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(send_error)}")
 
     # Commit only after successful send
