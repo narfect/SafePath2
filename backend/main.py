@@ -513,34 +513,15 @@ def get_verification_status(uid: str, session: Session = Depends(get_session)):
     statement = select(UserVerification).where(UserVerification.uid == uid)
     verification = session.exec(statement).first()
 
-    # If no explicit verification record exists, check if this is a newly created account
-    # by seeing if there are any verified OTP records for this UID
+    # Legacy users (before OTP rollout) remain valid.
     if not verification:
-        recent_otp = session.exec(
-            select(OTPCode)
-            .where(OTPCode.uid == uid)
-            .where(OTPCode.is_used == True)
-            .order_by(OTPCode.created_at.desc())
-        ).first()
-        
-        if recent_otp:
-            # Account was just created via OTP verification, auto-approve
-            verification = UserVerification(uid=uid)
-            if recent_otp.channel == "email":
-                verification.email_verified = True
-            else:
-                verification.phone_verified = True
-            session.add(verification)
-            session.commit()
-        else:
-            # Legacy users (before OTP rollout) remain valid.
-            return {
-                "uid": uid,
-                "email_verified": True,
-                "phone_verified": True,
-                "is_verified": True,
-                "is_legacy_user": True,
-            }
+        return {
+            "uid": uid,
+            "email_verified": True,
+            "phone_verified": True,
+            "is_verified": True,
+            "is_legacy_user": True,
+        }
 
     return {
         "uid": uid,
