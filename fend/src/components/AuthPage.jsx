@@ -720,8 +720,8 @@ const AuthPage = ({ setIsAuthenticated }) => {
                     <input
                       type="email"
                       name="email"
-                      value={loginEmail}
-                      onChange={handleLoginFieldChange}
+                      value={activeTab === "login" ? loginEmail : formData.email}
+                      onChange={activeTab === "login" ? handleLoginFieldChange : handleChange}
                       className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 pl-10 text-base text-white placeholder-gray-300 transition-all duration-200 hover:bg-white/15 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="john@example.com"
                       required={activeTab === "login"}
