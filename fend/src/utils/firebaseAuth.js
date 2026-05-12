@@ -690,14 +690,21 @@ export const registerUser = async (userData) => {
 
     const uid = firebaseUser.uid; // Use the actual Firebase UID!
 
+    // If this was an OTP-verified registration, transfer the verification status
     if (verificationSourceUid && verificationSourceUid !== uid) {
       try {
-        await transferVerificationStatus({
+        const transferResult = await transferVerificationStatus({
           sourceUid: verificationSourceUid,
           targetUid: uid,
         });
+        
+        if (!transferResult.success) {
+          console.error("Failed to transfer verification, but continuing:", transferResult.message);
+          // Don't fail registration, just log the warning
+        }
       } catch (err) {
-        console.warn("Could not transfer OTP verification status", err);
+        console.error("Could not transfer OTP verification status:", err);
+        // Don't fail registration if transfer fails
       }
     }
 
