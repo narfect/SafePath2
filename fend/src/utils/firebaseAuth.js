@@ -4,6 +4,7 @@ import {
   linkWithCredential,
   signInWithPopup,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
@@ -676,11 +677,29 @@ export const registerUser = async (userData) => {
       };
     }
 
-    const uid =
-      verificationSourceUid ||
-      userData.uid ||
-      `user_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const backendEmail = hasEmail ? normalizedEmail : firebaseEmail;
+
+    // Wait, first create the user in Firebase Auth so we get a valid Firebase UID and can login later!
+    let firebaseUser;
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, backendEmail, password);
+      firebaseUser = userCredential.user;
+    } catch (authError) {
+      throw authError; // This will be caught by the outer catch to show "auth/email-already-in-use", etc.
+    }
+
+    const uid = firebaseUser.uid; // Use the actual Firebase UID!
+
+    if (verificationSourceUid && verificationSourceUid !== uid) {
+      try {
+        await transferVerificationStatus({
+          sourceUid: verificationSourceUid,
+          targetUid: uid,
+        });
+      } catch (err) {
+        console.warn("Could not transfer OTP verification status", err);
+      }
+    }
 
     const response = await fetch(`${API_BASE_URL}/users/`, {
       method: "POST",

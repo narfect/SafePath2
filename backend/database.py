@@ -12,6 +12,10 @@ DATABASE_URL = os.getenv(
     "sqlite:///./safejourney.db"
 )
 
+# Fix postgres:// to postgresql:// for SQLAlchemy 1.4+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # Create engine with appropriate settings based on database type
 if "sqlite" in DATABASE_URL:
     # SQLite configuration for local development
@@ -49,6 +53,7 @@ def get_session():
                 status_code=503,
                 detail="Database connection unavailable. Please check your database configuration or network connection."
             )
+        raise
         raise
 
 def is_database_available() -> bool:
